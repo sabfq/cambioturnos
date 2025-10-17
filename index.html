@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<title>Cambio de Turnos</title>
+<style>
+body{font-family:Arial;margin:20px;}
+h1,h2{margin-top:20px;}
+table{border-collapse:collapse;width:100%;margin-bottom:20px;}
+th,td{border:1px solid #ddd;padding:8px;text-align:center;}
+th{background:#f2f2f2;}
+.laborable{color:green;font-weight:bold;}
+.festivo{color:red;font-weight:bold;}
+button{cursor:pointer;}
+</style>
+</head>
+<body>
+
+<h1>Cambio de Turnos</h1>
+
+<!-- LOGIN -->
+<div id="loginDiv">
+<h2>Login</h2>
+<label>Matrícula: <input id="matricula"></label>
+<label>Contraseña: <input id="password" type="password"></label>
+<button id="btnLogin">Entrar</button>
+</div>
+
+<!-- APP -->
+<div id="appDiv" style="display:none;">
+<h2>Bienvenido, <span id="userName"></span></h2>
+<button onclick="logout()">Cerrar sesión</button>
+
+<h2>Crear Oferta</h2>
+<label>Shift ID: <input id="shift_id"></label>
+<label>Fecha: <input type="date" id="fecha_oferta"></label>
+<label>Tipo de día: 
+<select id="tipo_dia">
+<option value="laborable">Laborable</option>
+<option value="festivo">Festivo</option>
+</select></label>
+<button onclick="crearOferta()">Crear Oferta</button>
+
+<h2>Ofertas Disponibles</h2>
+<table id="offersTable">
+<thead><tr><th>ID</th><th>Shift</th><th>Fecha</th><th>Tipo</th><th>Ofrecido por</th><th>Acción</th></tr></thead>
+<tbody></tbody>
+</table>
+
+<h2>Días Trabajados</h2>
+<table id="usersTable">
+<thead><tr><th>Matrícula</th><th>Nombre</th><th>Días Laborables</th><th>Días Festivos</th></tr></thead>
+<tbody></tbody>
+</table>
+
+<h2>Histórico</h2>
+<table id="historicoTable">
+<thead><tr><th>ID</th><th>Shift</th><th>Fecha</th><th>Tipo</th><th>Ofrecido por</th><th>Aceptado por</th><th>Estado</th></tr></thead>
+<tbody></tbody>
+</table>
+</div>
+
+<script>
+let currentUser=null;
+
+document.getElementById("btnLogin").addEventListener("click", login);
+
+function login(){
+    const mat = document.getElementById("matricula").value.trim();
+    const pass = document.getElementById("password").value.trim();
+    if(!mat || !pass){ alert("Introduce matrícula y contraseña"); return; }
+
+    let users = JSON.parse(localStorage.getItem("users")||"[]");
+    let user = users.find(u=>u.matricula===mat);
+
+    if(!user){
+        const nombre = prompt("Introduce tu nombre y apellido:");
+        if(!nombre){ alert("Debes introducir nombre y apellido"); return; }
+        user = {matricula: mat, nombre: nombre, password: pass, diasLaborable: 0, diasFestivo: 0};
+        users.push(user);
+        localStorage.setItem("users", JSON.stringify(users));
+    }else{
+        if(user.password !== pass){ alert("Contraseña incorrecta"); return; }
+    }
+
+    currentUser = user;
+    document.getElementById("userName").innerText = user.nombre;
+    document.getElementById("loginDiv").style.display = "none";
+    document.getElementById("appDiv").style.display = "block";
+
+    listarUsuarios();
+    listarOfertas();
+    listarHistorico();
+}
+
+function logout(){
+    currentUser = null;
+    document.getElementById("loginDiv").style.display = "block";
+    document.getElementById("appDiv").style.display = "none";
+}
+
+function crearOferta(){
+    const shift_id = document.getElementById("shift_id").value.trim();
+    const fecha_oferta = document.getElementById("fecha_oferta").value;
+    const tipo_dia = document.getElementById("tipo_dia").value;
+    if(!shift_id || !fecha_oferta){ alert("Rellena shift y fecha"); return; }
+
+    let users = JSON.parse(localStorage.getItem("users")||"[]");
+    let u = users.find(u=>u.matricula===currentUser.matricula);
+
+    if(tipo_dia === "laborable" && u.diasLaborable >= 7){ alert("Máximo días laborables alcanzado"); return; }
+    if(tipo_dia === "festivo" && u.diasFestivo >= 3){ alert("Máximo días festivos alcanzado"); return; }
+
+    let offers = JSON.parse(localStorage.getItem("offers")||"[]");
+    const id = offers.length + 1;
+    offers.push({id, shift_id, fecha_oferta, tipo_dia, offered_by: currentUser.matricula, offered_name: currentUser.nombre, accepted_by: null, accepted_name: null, estado: "pending"});
+    localStorage.setItem("offers", JSON.stringify(offers));
+
+    listarOfertas();
+    listarHistorico();
+    listarUsuarios();
+}
+
+function aceptarOferta(id){
+    let offers = JSON.parse(localStorage.getItem("offers")||"[]");
+    let offer = offers.find(o=>o.id===id);
+    if(!offer || offer.estado !== "pending"){ alert("Oferta no disponible"); return; }
+
+    let users = JSON.parse(localStorage.getItem("users")||"[]");
+    let accepter = users.find(u=>u.matricula === currentUser.matricula);
+
+    if(offer.tipo_dia === "laborable" && accepter.diasLaborable >= 7){ alert("Máximo laborable alcanzado"); return; }
+    if(offer.tipo_dia === "festivo" && accepter.diasFestivo >= 3){ alert("Máximo festivo alcanzado"); return; }
+
+    // Actualizar oferta
+    offer.accepted_by = currentUser.matricula;
+    offer.accepted_name = currentUser.nombre; // CORRECCIÓN
+    offer.estado = "accepted";
+
+    let oferente = users.find(u=>u.matricula === offer.offered_by);
+    if(offer.tipo_dia === "laborable"){ 
+        accepter.diasLaborable += 1; 
+        oferente.diasLaborable -= 1;
+    } else { 
+        accepter.diasFestivo += 1; 
+        oferente.diasFestivo -= 1;
+    }
+
+    localStorage.setItem("offers", JSON.stringify(offers));
+    localStorage.setItem("users", JSON.stringify(users));
+
+    listarOfertas();
+    listarHistorico();
+    listarUsuarios();
+}
+
+function cancelarOferta(id){
+    let offers = JSON.parse(localStorage.getItem("offers")||"[]");
+    let offer = offers.find(o=>o.id===id);
+    if(!offer || offer.estado !== "pending"){ alert("No se puede cancelar"); return; }
+    if(offer.offered_by !== currentUser.matricula){ alert("Solo puedes cancelar tus propias ofertas"); return; }
+
+    offers = offers.filter(o=>o.id !== id);
+    localStorage.setItem("offers", JSON.stringify(offers));
+
+    listarOfertas();
+    listarHistorico();
+    listarUsuarios();
+}
+
+function listarUsuarios(){
+    let users = JSON.parse(localStorage.getItem("users")||"[]");
+    const tbody = document.querySelector("#usersTable tbody");
+    tbody.innerHTML = "";
+    users.forEach(u=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${u.matricula}</td><td>${u.nombre}</td><td>${u.diasLaborable}</td><td>${u.diasFestivo}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+function listarOfertas(){
+    let offers = JSON.parse(localStorage.getItem("offers")||"[]").filter(o=>o.estado==="pending");
+    const tbody = document.querySelector("#offersTable tbody");
+    tbody.innerHTML = "";
+    offers.forEach(o=>{
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${o.id}</td><td>${o.shift_id}</td><td>${o.fecha_oferta}</td><td class="${o.tipo_dia}">${o.tipo_dia}</td>
+        <td>${o.offered_by} - ${o.offered_name}</td>
+        <td>
+        <button onclick="aceptarOferta(${o.id})">Aceptar</button>
+        ${o.offered_by===currentUser.matricula?'<button onclick="cancelarOferta('+o.id+')">Cancelar</button>':''}
+        </td>`;
+        tbody.appendChild(tr);
+    });
+}
+
+function listarHistorico(){
+    let offers = JSON.parse(localStorage.getItem("offers")||"[]");
+    const tbody = document.querySelector("#historicoTable tbody");
+    tbody.innerHTML = "";
+    offers.forEach(o=>{
+        const acceptedText = o.accepted_by ? `${o.accepted_by} - ${o.accepted_name}` : "-";
+        const tr = document.createElement("tr");
+        tr.innerHTML = `<td>${o.id}</td><td>${o.shift_id}</td><td>${o.fecha_oferta}</td><td class="${o.tipo_dia}">${o.tipo_dia}</td>
+        <td>${o.offered_by} - ${o.offered_name}</td><td>${acceptedText}</td><td>${o.estado}</td>`;
+        tbody.appendChild(tr);
+    });
+}
+</script>
+
+</body>
+</html>
